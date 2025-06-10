@@ -1,6 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = 'https://nbapcspsewyxahhlgodg.supabase.co';  // your URL
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5iYXBjc3BzZXd5eGFoaGxnb2RnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk1MzQzMTQsImV4cCI6MjA2NTExMDMxNH0.6DPA6ROGR0hJ-1SCpF6R50roJ7Vur4t2sQmTmZyCw60';                    // your anon key
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export default function TypingGame() {
   const allSentences = [
@@ -74,36 +80,37 @@ export default function TypingGame() {
   const [accuracy, setAccuracy] = useState(0);
 
   const [soundOn, setSoundOn] = useState(true);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load audio elements
+  // NEW: nickname input and submission state
+  const [nickname, setNickname] = useState('');
+  const [scoreSaved, setScoreSaved] = useState(false);
+
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
   const clickSound = useRef<HTMLAudioElement | null>(null);
   const sentenceSound = useRef<HTMLAudioElement | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<{username: string; wpm: number;}[]>([]);
 
   useEffect(() => {
     clickSound.current = new Audio('/sounds/click.mp3');
-    sentenceSound.current = new Audio('/sounds//sentence.mp3');
+    sentenceSound.current = new Audio('/sounds/sentence.mp3');
   }, []);
+
+  useEffect(() => {
+  fetchLeaderboard();
+}, []);
 
   useEffect(() => {
     if (started && !isFinished) {
       timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev === 1) {
-            clearInterval(timerRef.current!);
-            return 0;
-          }
-          return prev - 1;
-        });
+        setTimeLeft(prev => (prev === 1 ? (clearInterval(timerRef.current!), 0) : prev - 1));
       }, 1000);
     }
     return () => clearInterval(timerRef.current!);
   }, [started, isFinished]);
 
   useEffect(() => {
-    if (timeLeft === 0 && !isFinished) {
-      finalizeGame();
-    }
+    if (timeLeft === 0 && !isFinished) finalizeGame();
   }, [timeLeft, isFinished]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -117,7 +124,6 @@ export default function TypingGame() {
       clickSound.current.currentTime = 0;
       clickSound.current.play();
     }
-
     if (e.key === 'Enter' && !isFinished) {
       calculateCurrentSentenceStats(userInput);
       moveToNextSentence();
@@ -128,12 +134,10 @@ export default function TypingGame() {
     const expected = currentSentence;
     let correct = 0;
     for (let i = 0; i < typed.length; i++) {
-      if (typed[i] === expected[i]) {
-        correct++;
-      }
+      if (typed[i] === expected[i]) correct++;
     }
-    setCorrectCharsTotal((prev) => prev + correct);
-    setTypedCharsTotal((prev) => prev + typed.length);
+    setCorrectCharsTotal(prev => prev + correct);
+    setTypedCharsTotal(prev => prev + typed.length);
   };
 
   const moveToNextSentence = () => {
@@ -146,19 +150,27 @@ export default function TypingGame() {
         sentenceSound.current.currentTime = 0;
         sentenceSound.current.play();
       }
-    } else {
-      finalizeGame(); // All sentences exhausted
-    }
+    } else finalizeGame();
   };
+  const fetchLeaderboard = async () => {
+  const { data, error } = await supabase
+    .from('leaderboard')
+    .select('username, wpm')
+    .order('wpm', { ascending: false })
+    .limit(5);
+  
+  if (error) {
+    alert('Error loading leaderboard: ' + error.message);
+  } else {
+    setLeaderboard(data ?? []);
+  }
+};
 
   const finalizeGame = () => {
     const expected = currentSentence;
     let correctInCurrent = 0;
-
     for (let i = 0; i < userInput.length; i++) {
-      if (userInput[i] === expected[i]) {
-        correctInCurrent++;
-      }
+      if (userInput[i] === expected[i]) correctInCurrent++;
     }
 
     const totalCorrect = correctCharsTotal + correctInCurrent;
@@ -167,67 +179,136 @@ export default function TypingGame() {
     const timeSpent = 30 - timeLeft;
     const timeInMinutes = timeSpent / 60;
 
-    const calculatedWPM =
-      timeInMinutes > 0 ? Math.round((totalCorrect / 5) / timeInMinutes) : 0;
+    const finalWPM = timeInMinutes > 0 ? Math.round((totalCorrect / 5) / timeInMinutes) : 0;
+    const finalAccuracy = totalTyped > 0 ? Math.round((totalCorrect / totalTyped) * 100) : 0;
 
-    const calculatedAccuracy =
-      totalTyped > 0 ? Math.round((totalCorrect / totalTyped) * 100) : 0;
-
-    setWpm(calculatedWPM);
-    setAccuracy(calculatedAccuracy);
+    setWpm(finalWPM);
+    setAccuracy(finalAccuracy);
     setIsFinished(true);
   };
 
+  const resetGame = () => {
+    setUserInput('');
+    setStarted(false);
+    setIsFinished(false);
+    setTimeLeft(30);
+    setCorrectCharsTotal(0);
+    setTypedCharsTotal(0);
+    setWpm(0);
+    setAccuracy(0);
+    setCurrentSentenceIndex(0);
+    setCurrentSentence(shuffledSentences[0]);
+    setNickname('');
+    setScoreSaved(false);
+  };
+
+   const saveScore = async () => {
+    if (!nickname.trim()) return alert('Please add a nickname');
+    setIsSaving(true);
+    const { error } = await supabase.from('leaderboard').insert([{
+      username: nickname.trim(),
+      wpm,
+      accuracy,
+    }]);
+    setIsSaving(false);
+    if (error) alert('Error: ' + error.message);
+    else {
+      setScoreSaved(true);
+      fetchLeaderboard(); // refresh leaderboard after save
+    }
+  };
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e] px-4 py-10 text-white">
-      <h1 className="text-4xl font-bold mb-6 text-yellow-400 tracking-wide">⌨️ KeyCrush</h1>
+  <div className="min-h-screen flex flex-col justify-center items-center bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e] px-4 py-10 text-white relative">
+    <h1 className="text-4xl font-bold mb-6 text-yellow-400 tracking-wide" style={{ fontFamily: 'Georgia, serif' }}>⌨️ KeyCrush</h1>
 
-      <div className="mb-4">
-        <label className="mr-2 text-yellow-300">🔊 Typing Sound</label>
-        <input
-          type="checkbox"
-          checked={soundOn}
-          onChange={() => setSoundOn(!soundOn)}
-        />
+    <div className="mb-4">
+      <label className="mr-2 text-yellow-300" style={{ fontFamily: 'Georgia, serif' }}>🔊 Typing Sound</label>
+      <input type="checkbox" checked={soundOn} onChange={() => setSoundOn(!soundOn)} />
+    </div>
+
+    <div className="bg-gray-900 p-6 rounded-xl w-full max-w-3xl text-lg mb-4 shadow-lg border border-yellow-400">
+      <div className="text-center text-xl font-mono mb-2 flex flex-wrap justify-center">
+        {currentSentence.split('').map((char, idx) => {
+          const className = idx < userInput.length
+            ? (userInput[idx] === char ? 'text-green-400' : 'text-red-400')
+            : 'text-gray-400';
+          return (
+            <span key={idx} className={className}>
+              {char === ' ' ? '\u00A0' : char}
+            </span>
+          );
+        })}
       </div>
+    </div>
 
-      <div className="bg-gray-900 p-6 rounded-xl w-full max-w-3xl text-lg mb-4 shadow-lg border border-yellow-400">
-        <div className="text-center text-xl font-mono mb-2 flex flex-wrap justify-center">
-          {currentSentence.split('').map((char, idx) => {
-            let className = 'text-gray-400';
-            if (idx < userInput.length) {
-              className = userInput[idx] === char ? 'text-green-400' : 'text-red-400';
-            }
-            return (
-              <span key={idx} className={className}>
-                {char === ' ' ? '\u00A0' : char}
-              </span>
-            );
-          })}
-        </div>
+    <input
+      type="text"
+      value={userInput}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      disabled={isFinished}
+      placeholder="Type here and press Enter..."
+      className="w-full max-w-3xl px-4 py-3 text-lg rounded-lg bg-gray-100 text-black focus:outline-none focus:ring-2 focus:ring-yellow-400 transition-all mb-4"
+    />
+
+    <p className="text-lg text-yellow-300 mb-6" style={{ fontFamily: 'Georgia, serif' }} >
+      ⏱ Time Left: <span className="font-bold" style={{ fontFamily: 'arial' }}>{timeLeft}s</span>
+    </p>
+
+    {isFinished && (
+      <div className="bg-gray-800 rounded-xl p-6 shadow-md text-center space-y-4 w-full max-w-sm border border-green-400">
+        <p className="text-xl font-semibold text-green-300" style={{ fontFamily: 'Georgia, serif' }}>✅ Time’s up!</p>
+        <p className="text-lg" style={{ fontFamily: 'Georgia, serif' }}>🧠 WPM: <span className="text-yellow-300 font-bold">{wpm}</span></p>
+        <p className="text-lg" style={{ fontFamily: 'Georgia, serif' }}>🎯 Accuracy: <span className="text-yellow-300 font-bold">{accuracy}%</span></p>
+
+       {!scoreSaved && (
+  <>
+    <input
+      type="text"
+      placeholder="Enter your nickname"
+      value={nickname}
+      onChange={(e) => setNickname(e.target.value)}
+      className="w-full px-3 py-2 rounded bg-[#f5f5f5] text-black focus:outline-none"
+      disabled={isSaving}
+    />
+    <button
+      onClick={saveScore}
+      disabled={isSaving}
+      className="mt-2 px-6 py-2 bg-yellow-400 text-black rounded-lg font-semibold hover:bg-yellow-300 transition disabled:opacity-50"
+    >
+      {isSaving ? 'Saving... Please wait' : 'Save Score'}
+    </button>
+  </>
+)}
+
+        {scoreSaved && (
+          <div className="space-y-3">
+            <button
+              onClick={resetGame}
+              className="px-6 py-2 bg-green-400 text-black rounded-lg font-semibold hover:bg-green-300 transition"
+            >
+              Play Again
+            </button>
+          </div>
+        )}
       </div>
+    )}
 
-      <input
-        type="text"
-        value={userInput}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        disabled={isFinished}
-        placeholder="Type here and press Enter for next sentence"
-        className="w-full max-w-3xl px-4 py-3 text-lg rounded-lg bg-gray-100 text-black focus:outline-none focus:ring-2 focus:ring-yellow-400 transition-all mb-4"
-      />
-
-      <p className="text-lg text-yellow-300 mb-6">
-        ⏱ Time Left: <span className="font-bold">{timeLeft}s</span>
-      </p>
-
-      {isFinished && (
-        <div className="bg-gray-800 rounded-xl p-6 shadow-md text-center space-y-2 w-full max-w-sm border border-green-400">
-          <p className="text-xl font-semibold text-green-300">✅ Time’s up!</p>
-          <p className="text-lg">🧠 WPM: <span className="text-yellow-300 font-bold">{wpm}</span></p>
-          <p className="text-lg">🎯 Accuracy: <span className="text-yellow-300 font-bold">{accuracy}%</span></p>
-        </div>
+    {/* Leaderboard popup at top right */}
+    <div className="fixed top-6 right-6 bg-gray-900 bg-opacity-90 border border-yellow-400 rounded-lg p-4 w-48 shadow-lg z-50 text-yellow-300">
+      <h3 className="text-lg font-bold mb-2 text-yellow-400 border-b border-yellow-400 pb-1">🏆 Leaderboard</h3>
+      {leaderboard.length === 0 ? (
+        <p className="text-sm italic">No scores yet</p>
+      ) : (
+        leaderboard.map(({ username, wpm }, idx) => (
+          <div key={idx} className="flex justify-between mb-1 last:mb-0">
+            <span>{username}</span>
+            <span className="font-bold">{wpm} WPM</span>
+          </div>
+        ))
       )}
     </div>
-  );
+  </div>
+);
+
 }
