@@ -7,7 +7,7 @@ export default function Home() {
   </h1>
 
   <p className="mb-6 max-w-xl text-center text-white text-lg" style={{ fontFamily: 'comic sans ms' }} >
-    Improve your typing speed with fun coding quotes and motivational phrases.
+    ...where every keystroke counts !!!<br />
   </p>
 
  <a
