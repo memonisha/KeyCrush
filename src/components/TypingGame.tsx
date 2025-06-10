@@ -219,10 +219,10 @@ export default function TypingGame() {
   };
   return (
   <div className="min-h-screen flex flex-col justify-center items-center bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e] px-4 py-10 text-white relative">
-    <h1 className="text-4xl font-bold mb-6 text-yellow-400 tracking-wide" style={{ fontFamily: 'Georgia, serif' }}>⌨️ KeyCrush</h1>
+    <h1 className="text-5xl font-bold mb-8 heading-font text-yellow-400 tracking-wide" style={{ fontFamily: 'Georgia, serif' }}>🔥 KeyCrush ⌨️</h1>
 
-    <div className="mb-4">
-      <label className="mr-2 text-yellow-300" style={{ fontFamily: 'Georgia, serif' }}>🔊 Typing Sound</label>
+    <div className="mb-4" style={{backgroundColor:'black',padding:'10px', borderRadius:'10px', boxShadow:'0 4px 20px rgba(0,0,0,0.5)'}}>
+      <label className="mr-2 text-yellow-300" style={{ fontFamily: 'comic sans ms' }}>🔊 Typing Sound</label>
       <input type="checkbox" checked={soundOn} onChange={() => setSoundOn(!soundOn)} />
     </div>
 
